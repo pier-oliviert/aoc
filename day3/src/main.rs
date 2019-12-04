@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::str::FromStr;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 struct Point {
     x: i32,
     y: i32
@@ -22,33 +22,74 @@ impl Path {
             match iteration.next() {
                 None => break,
                 Some(command) => {
+                    let point = self.points.last().unwrap().clone();
                     let mut chars = command.chars();
                     let direction = chars.next().unwrap();
-                    println!("{:?}", direction);
-                    let amount: i32 = FromStr::from_str(&chars.as_str()[1..]).unwrap();
+                    let amount: i32 = match FromStr::from_str(&chars.as_str()) {
+                        Err(e) => break,
+                        Ok(a) => a
+                    };
 
-                    match direction {
-                        'R' => self.right(&amount),
-                        'L' => self.left(&amount),
-                        'U' => self.up(&amount),
-                        'D' => self.down(&amount),
-                        _ => println!("Error, value outside of scope")
-                    }
+                    let mut points = match direction {
+                        'R' => self.right(point, amount),
+                        'L' => self.left(point, amount),
+                        'U' => self.up(point, amount),
+                        'D' => self.down(point, amount),
+                        _ => self.noop()
+                    };
+
+                    self.points.append(&mut points);
                 }
             }
         }
     }
 
-    fn right(&mut self, amount: &i32) -> () {
+    fn include(&self, point: &Point) -> bool {
+        self.points.contains(point)
     }
 
-    fn left(&mut self, amount: &i32) -> () {
+    fn noop(&self) -> Vec<Point> {
+        Vec::new()
     }
 
-    fn up(&mut self, amount: &i32) -> () {
+    fn right(&self, point: &Point, amount: i32) -> Vec<Point> {
+        let mut points = Vec::new();
+
+        for x in 1..amount {
+            points.push(Point{x: point.x + x, y: point.y});
+        }
+
+        return points;
     }
 
-    fn down(&mut self, amount: &i32) -> () {
+    fn left(&self, point: &Point, amount: i32) -> Vec<Point> {
+        let mut points = Vec::new();
+
+        for x in 1..amount {
+            points.push(Point{x: point.x - x, y: point.y});
+        }
+
+        return points;
+    }
+
+    fn up(&self, point: &Point, amount: i32) -> Vec<Point> {
+        let mut points = Vec::new();
+
+        for y in 1..amount {
+            points.push(Point{x: point.x, y: point.y + y});
+        }
+
+        return points;
+    }
+
+    fn down(&self, point: &Point, amount: i32) -> Vec<Point> {
+        let mut points = Vec::new();
+
+        for y in 1..amount {
+            points.push(Point{x: point.x, y: point.y - y});
+        }
+
+        return points;
     }
 }
 
@@ -68,5 +109,18 @@ fn main() {
     let mut main: Path = Path::default();
 
     main.run(&raw_paths[0]);
-    println!("{:?}", main);
+
+    let mut secondary: Path = Path::default();
+    secondary.run(&raw_paths[1]);
+
+    let mut intersections = Vec::new();
+
+    for point in &secondary.points {
+        if main.include(point) {
+            println!("{:?}", point);
+            intersections.push(point.clone())
+        }
+    }
+
+    println!("{:?}", intersections);
 }

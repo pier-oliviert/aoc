@@ -5,3 +5,4 @@ authors = ["= <hello@pothibo.com>"]
 edition = "2018"
 
 [dependencies]
+array_tool = "1.0.3"
