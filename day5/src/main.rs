@@ -15,16 +15,19 @@ enum OpCode {
 #[derive(Debug)]
 struct Instruction {
     operation: OpCode,
-    parameters: Parameters
+    parameters: Vec<Parameter>
 }
 
 impl Instruction {
     fn construct(codes: &[i32], position: usize) -> Instruction {
         let (op_code, size, modes) = Instruction::modes(codes[position]);
-        let mut parameters = Parameters::default();
+        let mut parameters = Vec::new();
 
-        for x in 0..size {
-            parameters.add(codes[position + x as usize], modes[x as usize], codes);
+        for x in 1..=size {
+            parameters.push(Parameter {
+                value: codes[position + x] as isize,
+                mode: modes[x - 1]
+            })
         }
 
         Instruction {
@@ -33,10 +36,11 @@ impl Instruction {
         }
     }
 
-    fn modes(number: i32) -> (OpCode, u8, [Mode; 3]) {
+    fn modes(number: i32) -> (OpCode, usize, [Mode; 3]) {
         let mut modes = [Mode::Position; 3];
         for x in 1..=3 {
-            modes[x - 1] = match number % 10_i32.pow(6_u32 - x as u32) / 10_i32.pow(7_u32 - x as u32) {
+            let mode = number % 10_i32.pow(6_u32 - x as u32) / 10_i32.pow(5_u32 - x as u32);
+            modes[x - 1] = match mode {
                 0 => Mode::Position,
                 1 => Mode::Immediate,
                 _ => Mode::Invalid
@@ -55,7 +59,7 @@ impl Instruction {
         };
 
         let size = match op_code {
-            OpCode::Addition | OpCode::Multiplication => 4,
+            OpCode::Addition | OpCode::Multiplication => 3,
             OpCode::Input | OpCode::Output => 1,
             OpCode::Exit | OpCode::Invalid => 0
         };
@@ -69,38 +73,35 @@ impl Instruction {
             OpCode::Addition => self.add(codes),
             OpCode::Multiplication => self.multiply(codes),
             OpCode::Input => self.input(codes),
-            OpCode::Output => self.output(),
+            OpCode::Output => self.output(codes),
             OpCode::Exit | OpCode::Invalid => {}
         };
 
-        return (self.operation == OpCode::Exit, self.parameters.len());
-    }
-
-    fn size (&self) -> usize {
-        self.parameters.len() + 1
+        return (self.operation == OpCode::Exit, self.parameters.len() + 1);
     }
 
     fn add(&self, codes: &mut Vec<i32>) -> () {
-        let result = self.parameters.values[0] + self.parameters.values[1];
-        codes[self.parameters.values[3] as usize] = result as i32;
+        let result = self.parameters[0].content(codes) + self.parameters[1].content(codes);
+        codes[self.parameters[2].value as usize] = result as i32;
     }
 
-    fn multiply(&self, mut codes: &mut Vec<i32>) -> () {
-        let result = self.parameters.values[0] * self.parameters.values[1];
-        codes[self.parameters.values[3] as usize] = result as i32;
+    fn multiply(&self, codes: &mut Vec<i32>) -> () {
+        let result = self.parameters[0].content(codes) * self.parameters[1].content(codes);
+        codes[self.parameters[2].value as usize] = result as i32;
     }
 
-    fn input(&self, mut codes: &mut Vec<i32>) -> () {
+    fn input(&self, codes: &mut Vec<i32>) -> () {
         let stdin = io::stdin();
 
+        println!("Input a number: ");
         let input = stdin.lock().lines().next().unwrap().unwrap();
         let value = input.parse::<i32>().unwrap();
 
-        codes[self.parameters.values[0] as usize] = value;
+        codes[self.parameters[0].value as usize] = value;
     }
 
-    fn output(&self) -> () {
-        println!("{:?}", self.parameters.values[0]);
+    fn output(&self, codes: &[i32]) -> () {
+        println!("{:?}", self.parameters[0].content(codes));
     }
 }
 
@@ -111,23 +112,22 @@ enum Mode {
     Invalid
 }
 
-#[derive(Debug, Default)]
-struct Parameters {
-    count: u8,
-    values: Vec<isize>
+#[derive(Debug)]
+struct Parameter {
+    value: isize,
+    mode: Mode
 }
 
-impl Parameters {
-    fn add(&mut self, value: i32, mode: Mode, codes: &[i32]) -> () {
-        match mode {
-            Mode::Immediate => &self.values.push(value as isize),
-            Mode::Position => &self.values.push(codes[value as usize] as isize),
-            Mode::Invalid => &println!("Couldn't handle the invalid mode")
-        };
-    }
-
-    fn len(&self) -> usize {
-        self.values.len()
+impl Parameter {
+    fn content(&self, codes: &[i32]) -> (isize) {
+        match self.mode {
+            Mode::Immediate => self.value,
+            Mode::Position => codes[self.value as usize] as isize,
+            Mode::Invalid => {
+                &println!("Couldn't handle the invalid mode");
+                -1
+            }
+        }
     }
 }
 
@@ -147,7 +147,6 @@ impl Processor {
 
         while !self.done && position < codes.len() {
             let instruction = Instruction::construct(&codes, position);
-            println!("{:?}", instruction);
             let (should_exit, size) = instruction.execute(codes);
             position += size;
 
