@@ -138,13 +138,13 @@ impl Instruction {
     }
 
     fn compare(&self, codes: &mut Vec<i32>, condition: &Comparison) -> usize {
-        let store = self.parameters[2].value as usize;
+        let address = self.parameters[2].value as usize;
         let left = self.parameters[0].content(codes);
         let right = self.parameters[1].content(codes);
 
         match condition {
-            Comparison::Equality => codes[store] = (left == right) as i32,
-            Comparison::LesserThan => codes[store] = (left < right) as i32
+            Comparison::Equality => codes[address] = (left == right) as i32,
+            Comparison::LesserThan => codes[address] = (left < right) as i32
         }
 
         return self.address + self.parameters.len() + 1;
