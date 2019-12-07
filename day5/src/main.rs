@@ -8,38 +8,51 @@ enum OpCode {
     Multiplication,
     Input,
     Output,
+    JumpIf(bool),
+    Comparison(Comparison),
     Exit,
     Invalid,
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+enum Comparison {
+    LesserThan,
+    Equality
 }
 
 #[derive(Debug)]
 struct Instruction {
     operation: OpCode,
-    parameters: Vec<Parameter>
+    parameters: Vec<Parameter>,
+    address: usize,
+    origin: i32
 }
 
 impl Instruction {
-    fn construct(codes: &[i32], position: usize) -> Instruction {
-        let (op_code, size, modes) = Instruction::modes(codes[position]);
+    fn construct(codes: &[i32], address: usize) -> Instruction {
+        let (op_code, size, modes) = Instruction::modes(codes, &address);
         let mut parameters = Vec::new();
 
         for x in 1..=size {
             parameters.push(Parameter {
-                value: codes[position + x] as isize,
+                value: codes[address + x] as isize,
                 mode: modes[x - 1]
             })
         }
 
         Instruction {
+            address: address,
+            origin: codes[address],
             operation: op_code,
             parameters: parameters
         }
     }
 
-    fn modes(number: i32) -> (OpCode, usize, [Mode; 3]) {
+    fn modes(codes: &[i32], address: &usize) -> (OpCode, usize, [Mode; 3]) {
+        let pointer = codes[*address];
         let mut modes = [Mode::Position; 3];
         for x in 1..=3 {
-            let mode = number % 10_i32.pow(6_u32 - x as u32) / 10_i32.pow(5_u32 - x as u32);
+            let mode = pointer % 10_i32.pow(6_u32 - x as u32) / 10_i32.pow(5_u32 - x as u32);
             modes[x - 1] = match mode {
                 0 => Mode::Position,
                 1 => Mode::Immediate,
@@ -49,17 +62,22 @@ impl Instruction {
 
         modes.reverse();
 
-        let op_code = match number % 100 {
+        let op_code = match pointer % 100 {
             1 => OpCode::Addition,
             2 => OpCode::Multiplication,
             3 => OpCode::Input,
             4 => OpCode::Output,
+            5 => OpCode::JumpIf(true),
+            6 => OpCode::JumpIf(false),
+            7 => OpCode::Comparison(Comparison::LesserThan),
+            8 => OpCode::Comparison(Comparison::Equality),
             99 => OpCode::Exit,
             _ => OpCode::Invalid
         };
 
         let size = match op_code {
-            OpCode::Addition | OpCode::Multiplication => 3,
+            OpCode::Addition | OpCode::Multiplication | OpCode::Comparison(_) => 3,
+            OpCode::JumpIf(_) => 2,
             OpCode::Input | OpCode::Output => 1,
             OpCode::Exit | OpCode::Invalid => 0
         };
@@ -67,30 +85,39 @@ impl Instruction {
         return (op_code, size, modes);
     }
 
-
     fn execute(&self, codes: &mut Vec<i32>) -> (bool, usize) {
-        match self.operation {
+        let position = match self.operation {
             OpCode::Addition => self.add(codes),
             OpCode::Multiplication => self.multiply(codes),
             OpCode::Input => self.input(codes),
             OpCode::Output => self.output(codes),
-            OpCode::Exit | OpCode::Invalid => {}
+            OpCode::JumpIf(condition) => self.jump(codes, &condition),
+            OpCode::Comparison(condition) => self.compare(codes, &condition),
+            OpCode::Invalid => {
+                println!("Invalid Instruction! {:?}", self);
+                1
+            },
+            OpCode::Exit => 0
         };
 
-        return (self.operation == OpCode::Exit, self.parameters.len() + 1);
+        return (self.operation == OpCode::Exit, position);
     }
 
-    fn add(&self, codes: &mut Vec<i32>) -> () {
+    fn add(&self, codes: &mut Vec<i32>) -> usize {
         let result = self.parameters[0].content(codes) + self.parameters[1].content(codes);
         codes[self.parameters[2].value as usize] = result as i32;
+
+        return self.address + self.parameters.len() + 1;
     }
 
-    fn multiply(&self, codes: &mut Vec<i32>) -> () {
+    fn multiply(&self, codes: &mut Vec<i32>) -> usize {
         let result = self.parameters[0].content(codes) * self.parameters[1].content(codes);
         codes[self.parameters[2].value as usize] = result as i32;
+
+        return self.address + self.parameters.len() + 1;
     }
 
-    fn input(&self, codes: &mut Vec<i32>) -> () {
+    fn input(&self, codes: &mut Vec<i32>) -> usize {
         let stdin = io::stdin();
 
         println!("Input a number: ");
@@ -98,10 +125,35 @@ impl Instruction {
         let value = input.parse::<i32>().unwrap();
 
         codes[self.parameters[0].value as usize] = value;
+
+        return self.address + self.parameters.len() + 1;
     }
 
-    fn output(&self, codes: &[i32]) -> () {
+    fn jump(&self, codes: &mut Vec<i32>, is_zero: &bool) -> usize {
+        if (self.parameters[0].content(codes) == 0) != *is_zero {
+            return self.parameters[1].content(codes) as usize;
+        }
+
+        return self.address + self.parameters.len() + 1;
+    }
+
+    fn compare(&self, codes: &mut Vec<i32>, condition: &Comparison) -> usize {
+        let store = self.parameters[2].value as usize;
+        let left = self.parameters[0].content(codes);
+        let right = self.parameters[1].content(codes);
+
+        match condition {
+            Comparison::Equality => codes[store] = (left == right) as i32,
+            Comparison::LesserThan => codes[store] = (left < right) as i32
+        }
+
+        return self.address + self.parameters.len() + 1;
+    }
+
+    fn output(&self, codes: &[i32]) -> usize {
         println!("{:?}", self.parameters[0].content(codes));
+
+        return self.address + self.parameters.len() + 1;
     }
 }
 
@@ -143,17 +195,17 @@ impl Processor {
     }
 
     fn compute(&mut self, codes: &mut Vec<i32>) -> usize {
-        let mut position = 0;
+        let mut address = 0;
 
-        while !self.done && position < codes.len() {
-            let instruction = Instruction::construct(&codes, position);
-            let (should_exit, size) = instruction.execute(codes);
-            position += size;
+        while !self.done && address < codes.len() {
+            let instruction = Instruction::construct(&codes, address);
+            let (should_exit, new_address) = instruction.execute(codes);
 
-            self.done = should_exit
+            address = new_address;
+            self.done = should_exit;
         }
 
-        return position;
+        return address;
     }
 }
 
