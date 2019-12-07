@@ -176,7 +176,7 @@ impl Parameter {
             Mode::Immediate => self.value,
             Mode::Position => codes[self.value as usize] as isize,
             Mode::Invalid => {
-                &println!("Couldn't handle the invalid mode");
+                println!("Couldn't handle the invalid mode");
                 -1
             }
         }
